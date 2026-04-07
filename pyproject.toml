@@ -1,0 +1,15 @@
+[project]
+name = "salary-prediction-app"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "kagglehub>=0.3.3",
+    "pandas>=2.2.2",
+    "numpy>=1.26.4",
+    "scikit-learn>=1.5.1",
+    "matplotlib>=3.9.1",
+    "supabase>=2.5.3",
+    "ollama>=0.3.3",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+]
