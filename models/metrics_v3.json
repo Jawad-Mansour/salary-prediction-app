@@ -1,0 +1,26 @@
+{
+  "mae": 35337.557349254006,
+  "mae_percentage": 26.354967152607884,
+  "mse": 2092592074.3504272,
+  "rmse": 45744.858447156956,
+  "r2": 0.47223946558036156,
+  "mean_salary": 134083.10146862495,
+  "median_salary": 131300.00000000012,
+  "test_samples": 749,
+  "model_type": "DecisionTreeRegressor",
+  "model_version": "v3",
+  "training_date": "2026-04-09T00:26:38.954137",
+  "best_params": {
+    "criterion": "squared_error",
+    "max_depth": 12,
+    "max_features": null,
+    "min_samples_leaf": 6,
+    "min_samples_split": 30
+  },
+  "features_used": {
+    "outlier_removal": true,
+    "target_transform": true,
+    "interactions": true,
+    "development_index": true
+  }
+}
