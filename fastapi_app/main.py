@@ -5,13 +5,19 @@ GET /predict - Predict salary based on job details
 GET /health  - Check if API is alive
 """
 
-from fastapi import FastAPI, HTTPException, Query
-from typing import Optional
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 import uvicorn
+import sys
+from pathlib import Path
 
-from .schemas import PredictionResponse, HealthResponse
-from .utils import preprocess_input, load_freq_map
-from .model_loader import model_loader
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from fastapi_app.schemas import PredictionRequest, PredictionResponse, HealthResponse
+from fastapi_app.utils import preprocess_input, load_freq_map
+from fastapi_app.model_loader import model_loader
 
 # Create FastAPI app
 app = FastAPI(
@@ -19,6 +25,37 @@ app = FastAPI(
     description="Predicts data science salaries using a Decision Tree model",
     version="1.0.0"
 )
+
+
+# ============================================================================
+# EXCEPTION HANDLER - FIXED VERSION
+# ============================================================================
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    """
+    Handle Pydantic validation errors and return proper 422 response.
+    
+    This converts the ValidationError into a JSON-serializable format.
+    """
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "loc": error.get("loc", []),
+            "msg": error.get("msg", "Validation error"),
+            "type": error.get("type", "value_error"),
+            "input": error.get("input", None)
+        })
+    
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors}
+    )
+
+
+# ============================================================================
+# LOAD FREQUENCY MAP
+# ============================================================================
 
 # Load frequency map at startup
 try:
@@ -35,14 +72,7 @@ except Exception as e:
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """
-    Health check endpoint - confirms API is running and model is loaded.
-    
-    Returns:
-        - status: "ok" if API is running
-        - model_loaded: True if model loaded successfully
-        - version: API version
-    """
+    """Health check endpoint - confirms API is running and model is loaded."""
     return HealthResponse(
         status="ok",
         model_loaded=model_loader.is_loaded,
@@ -52,70 +82,60 @@ async def health_check():
 
 @app.get("/predict", response_model=PredictionResponse, tags=["Prediction"])
 async def predict_salary(
-    job_title: str = Query(..., description="Job title (e.g., Data Scientist)"),
-    experience_level: str = Query(..., description="Experience level: EN, MI, SE, EX"),
-    employment_type: str = Query(..., description="Employment type: FT, PT, CT, FL"),
-    company_size: str = Query(..., description="Company size: S, M, L"),
-    remote_ratio: int = Query(..., description="Remote ratio: 0, 50, 100"),
-    work_year: int = Query(..., description="Work year: 2020-2026"),
-    employee_residence: str = Query("US", description="Employee country code"),
-    company_location: str = Query("US", description="Company country code"),
+    request: PredictionRequest = Depends()
 ):
     """
     Predict salary based on job details.
     
-    All inputs are validated. Invalid values return clear error messages.
+    All inputs are validated by Pydantic validators. 
+    Invalid values return 422 error with clear message.
     
     Example:
         GET /predict?job_title=Data+Scientist&experience_level=SE&employment_type=FT&company_size=L&remote_ratio=100&work_year=2026&employee_residence=US&company_location=US
     """
     
-    # Step 1: Create input dictionary
+    # Create input dictionary from validated request
     input_data = {
-        "job_title": job_title,
-        "experience_level": experience_level,
-        "employment_type": employment_type,
-        "company_size": company_size,
-        "remote_ratio": remote_ratio,
-        "work_year": work_year,
-        "employee_residence": employee_residence,
-        "company_location": company_location
+        "job_title": request.job_title,
+        "experience_level": request.experience_level,
+        "employment_type": request.employment_type,
+        "company_size": request.company_size,
+        "remote_ratio": request.remote_ratio,
+        "work_year": request.work_year,
+        "employee_residence": request.employee_residence,
+        "company_location": request.company_location
     }
     
-    # Step 2: Check if model is loaded
+    # Check if model is loaded
     if not model_loader.is_loaded:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
-    # Step 3: Preprocess input
+    # Preprocess input
     try:
         X = preprocess_input(input_data, FREQ_MAP)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Preprocessing failed: {str(e)}")
     
-    # Step 4: Make prediction
+    # Make prediction
     try:
         predicted_salary = model_loader.predict(X)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
     
-    # Step 5: Return response
+    # Return response
     return PredictionResponse(
-        job_title=job_title,
-        experience_level=experience_level,
-        employment_type=employment_type,
-        company_size=company_size,
-        remote_ratio=remote_ratio,
-        work_year=work_year,
-        employee_residence=employee_residence,
-        company_location=company_location,
+        job_title=request.job_title,
+        experience_level=request.experience_level,
+        employment_type=request.employment_type,
+        company_size=request.company_size,
+        remote_ratio=request.remote_ratio,
+        work_year=request.work_year,
+        employee_residence=request.employee_residence,
+        company_location=request.company_location,
         predicted_salary_usd=round(predicted_salary, 2),
         status="success"
     )
 
-
-# ============================================================================
-# ROOT ENDPOINT (simple welcome)
-# ============================================================================
 
 @app.get("/", tags=["Root"])
 async def root():
@@ -127,10 +147,6 @@ async def root():
         "predict": "/predict?job_title=Data+Scientist&experience_level=SE&employment_type=FT&company_size=L&remote_ratio=100&work_year=2026&employee_residence=US&company_location=US"
     }
 
-
-# ============================================================================
-# RUN SERVER (for local testing)
-# ============================================================================
 
 if __name__ == "__main__":
     uvicorn.run(
