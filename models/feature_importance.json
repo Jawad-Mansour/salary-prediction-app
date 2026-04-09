@@ -1,58 +1,78 @@
 [
   {
     "feature":"region_encoded",
-    "importance":0.5564656033
+    "importance":0.554665988
   },
   {
     "feature":"region_x_exp",
-    "importance":0.1471648838
+    "importance":0.1709461057
+  },
+  {
+    "feature":"size_x_title",
+    "importance":0.0759378304
   },
   {
     "feature":"title_x_region",
-    "importance":0.1182729016
+    "importance":0.0738049475
   },
   {
     "feature":"job_title_encoded",
-    "importance":0.0556137252
-  },
-  {
-    "feature":"experience_level_encoded",
-    "importance":0.0236731457
-  },
-  {
-    "feature":"dev_index",
-    "importance":0.0190648528
+    "importance":0.0347363582
   },
   {
     "feature":"remote_x_exp",
-    "importance":0.0179206875
-  },
-  {
-    "feature":"work_year_squared",
-    "importance":0.017630782
+    "importance":0.0187185128
   },
   {
     "feature":"exp_x_size",
-    "importance":0.0173056702
+    "importance":0.0171762517
+  },
+  {
+    "feature":"dev_index",
+    "importance":0.0154559302
+  },
+  {
+    "feature":"work_year_squared",
+    "importance":0.0123398654
   },
   {
     "feature":"work_year",
-    "importance":0.0100749789
-  },
-  {
-    "feature":"company_size_encoded",
-    "importance":0.0088997114
+    "importance":0.0077453763
   },
   {
     "feature":"remote_ratio",
-    "importance":0.0053656888
+    "importance":0.0076956392
   },
   {
     "feature":"same_country",
-    "importance":0.0025473688
+    "importance":0.0025391306
+  },
+  {
+    "feature":"experience_level_encoded",
+    "importance":0.0024678074
+  },
+  {
+    "feature":"size_squared",
+    "importance":0.0024590024
+  },
+  {
+    "feature":"is_small",
+    "importance":0.0019548123
+  },
+  {
+    "feature":"size_x_region",
+    "importance":0.0013564418
+  },
+  {
+    "feature":"company_size_encoded",
+    "importance":0.0
   },
   {
     "feature":"employment_type_encoded",
+    "importance":0.0
+  },
+  {
+    "feature":"is_large",
     "importance":0.0
   }
 ]

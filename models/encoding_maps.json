@@ -43,10 +43,10 @@
     "GB": "WE",
     "DE": "WE",
     "FR": "WE",
-    "NL": "WE",
-    "CH": "WE",
     "ES": "WE",
     "IT": "WE",
+    "NL": "WE",
+    "CH": "WE",
     "BE": "WE",
     "AT": "WE",
     "IE": "WE",
@@ -55,18 +55,6 @@
     "DK": "WE",
     "FI": "WE",
     "NO": "WE",
-    "PL": "EE",
-    "CZ": "EE",
-    "HU": "EE",
-    "RO": "EE",
-    "BG": "EE",
-    "SK": "EE",
-    "HR": "EE",
-    "RS": "EE",
-    "LT": "EE",
-    "LV": "EE",
-    "EE": "EE",
-    "GR": "EE",
     "AU": "AP",
     "NZ": "AP",
     "SG": "AP",
@@ -227,12 +215,17 @@
     "company_size_encoded",
     "same_country",
     "experience_level_encoded",
-    "employment_type_encoded"
+    "employment_type_encoded",
+    "size_squared",
+    "size_x_region",
+    "size_x_title",
+    "is_large",
+    "is_small"
   ],
   "numerical_features": [
     "remote_ratio",
     "work_year"
   ],
-  "version": "2.0.4",
-  "created_at": "2026-04-09T03:31:01.557821"
+  "version": "3.0.0",
+  "created_at": "2026-04-09T11:22:41.415592"
 }
