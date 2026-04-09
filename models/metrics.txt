@@ -1,0 +1,17 @@
+============================================================
+DECISION TREE - EVALUATION METRICS
+============================================================
+
+Training Date: 2026-04-09T03:31:01.567341
+Model Type: DecisionTreeRegressor
+
+Test R²: 0.4731
+Test MAE: $35,267.94 (26.30%)
+Test RMSE: $45,709.58
+
+Best Hyperparameters:
+  criterion: squared_error
+  max_depth: 12
+  max_features: None
+  min_samples_leaf: 6
+  min_samples_split: 30

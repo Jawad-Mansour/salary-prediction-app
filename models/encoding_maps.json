@@ -204,7 +204,7 @@
     "Staff Data Scientist": 0.0002663115845539281,
     "Finance Data Analyst": 0.0002663115845539281
   },
-  "feature_order": [
+  "base_feature_order": [
     "experience_level_encoded",
     "employment_type_encoded",
     "company_size_encoded",
@@ -213,10 +213,26 @@
     "remote_ratio",
     "work_year"
   ],
+  "full_feature_order": [
+    "region_encoded",
+    "region_x_exp",
+    "job_title_encoded",
+    "title_x_region",
+    "dev_index",
+    "exp_x_size",
+    "work_year",
+    "remote_x_exp",
+    "work_year_squared",
+    "remote_ratio",
+    "company_size_encoded",
+    "same_country",
+    "experience_level_encoded",
+    "employment_type_encoded"
+  ],
   "numerical_features": [
     "remote_ratio",
     "work_year"
   ],
-  "version": "2.0.0",
-  "created_at": "2026-04-09T00:26:38.949141"
+  "version": "2.0.4",
+  "created_at": "2026-04-09T03:31:01.557821"
 }

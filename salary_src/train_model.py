@@ -15,7 +15,7 @@ NOT allowed (per assignment):
 - Ensemble methods
 
 Author: Salary Prediction App
-Version: 3.0.0 (Pure Decision Tree - Fixed)
+Version: 3.0.2 (FIXED - No duplicate functions, uses preprocess.py)
 """
 
 import pandas as pd
@@ -30,7 +30,6 @@ warnings.filterwarnings('ignore')
 
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.preprocessing import PowerTransformer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from salary_src.data_loader import load_salaries_dataset
@@ -40,7 +39,10 @@ from salary_src.preprocess import (
     save_encoding_maps,
     load_encoding_maps,
     validate_input_data,
-    validate_encoded_features
+    validate_encoded_features,
+    TargetTransformer,
+    engineer_features,  # Import from preprocess (single source of truth)
+    FULL_FEATURE_ORDER  # Import the feature order
 )
 
 import logging
@@ -83,81 +85,10 @@ class ModelConfigV3:
     USE_DEVELOPMENT_INDEX = True
     
     # File paths
-    MODEL_PATH = Path("models/decision_tree_v3.pkl")
-    TRANSFORMER_PATH = Path("models/power_transformer_v3.pkl")
-    METRICS_PATH = Path("models/metrics_v3.json")
-    ENCODING_MAPS_PATH = Path("models/encoding_maps_v3.json")
-
-
-# ============================================================================
-# Feature Engineering (Allowed - just creating new columns)
-# ============================================================================
-
-def engineer_features(X: pd.DataFrame, df_raw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
-    """
-    Create interaction features for Decision Tree.
-    Decision Trees CAN use engineered features - this is allowed.
-    """
-    X_eng = X.copy()
-    
-    # Experience × Company Size interaction
-    if 'experience_level_encoded' in X.columns and 'company_size_encoded' in X.columns:
-        X_eng['exp_x_size'] = X['experience_level_encoded'] * X['company_size_encoded']
-        logger.info("✅ Added feature: exp_x_size")
-    
-    # Remote Ratio × Experience interaction
-    if 'remote_ratio' in X.columns and 'experience_level_encoded' in X.columns:
-        X_eng['remote_x_exp'] = (X['remote_ratio'] / 100) * X['experience_level_encoded']
-        logger.info("✅ Added feature: remote_x_exp")
-    
-    # Work year squared (capture non-linear trends)
-    if 'work_year' in X.columns:
-        X_eng['work_year_squared'] = X['work_year'] ** 2
-        logger.info("✅ Added feature: work_year_squared")
-    
-    # Region × Experience interaction
-    if 'region_encoded' in X.columns and 'experience_level_encoded' in X.columns:
-        X_eng['region_x_exp'] = X['region_encoded'] * X['experience_level_encoded']
-        logger.info("✅ Added feature: region_x_exp")
-    
-    # Job Title × Region interaction
-    if 'job_title_encoded' in X.columns and 'region_encoded' in X.columns:
-        X_eng['title_x_region'] = X['job_title_encoded'] * X['region_encoded']
-        logger.info("✅ Added feature: title_x_region")
-    
-    # Development Index (Country GDP proxy)
-    if ModelConfigV3.USE_DEVELOPMENT_INDEX and df_raw is not None:
-        development_index = {
-            # Tier 1: Highest
-            'US': 100, 'CH': 100, 'SG': 100, 'LU': 100,
-            # Tier 2: Very High
-            'CA': 95, 'AU': 95, 'NL': 95, 'DE': 95, 'DK': 95,
-            'SE': 95, 'FI': 95, 'IE': 95, 'NO': 95, 'GB': 90,
-            'BE': 90, 'FR': 90, 'AT': 90, 'NZ': 90, 'IL': 90,
-            # Tier 3: High
-            'ES': 85, 'IT': 85, 'JP': 85, 'KR': 85, 'AE': 85,
-            'PT': 80, 'GR': 80, 'PL': 80, 'CZ': 80, 'HU': 75,
-            # Tier 4: Medium
-            'CN': 70, 'MY': 65, 'TR': 60, 'BR': 60, 'MX': 60,
-            'RU': 60, 'ZA': 55, 'TH': 55,
-            # Tier 5: Lower
-            'ID': 50, 'IN': 45, 'VN': 45, 'PH': 40, 'PK': 35,
-            'NG': 30, 'KE': 30, 'EG': 40, 'MA': 40
-        }
-        
-        if 'employee_residence' in df_raw.columns:
-            X_eng['dev_index'] = df_raw['employee_residence'].map(development_index)
-            X_eng['dev_index'] = X_eng['dev_index'].fillna(50)  # Default medium
-            logger.info("✅ Added feature: dev_index")
-        
-        # Same country colocation (employee lives where company is)
-        if 'employee_residence' in df_raw.columns and 'company_location' in df_raw.columns:
-            X_eng['same_country'] = (df_raw['employee_residence'] == df_raw['company_location']).astype(int)
-            logger.info("✅ Added feature: same_country")
-    
-    logger.info(f"Feature engineering complete: {X_eng.shape[1]} total features")
-    
-    return X_eng
+    MODEL_PATH = Path("models/decision_tree.pkl")
+    TRANSFORMER_PATH = Path("models/transformer.pkl")
+    METRICS_PATH = Path("models/metrics.json")
+    ENCODING_MAPS_PATH = Path("models/encoding_maps.json")
 
 
 # ============================================================================
@@ -186,7 +117,7 @@ def remove_outliers(
     Q1 = y.quantile(0.25)
     Q3 = y.quantile(0.75)
     IQR = Q3 - Q1
-    lower_bound = Q1 - multiplier * IQR
+    lower_bound = max(0, Q1 - multiplier * IQR)  # Cannot be negative
     upper_bound = Q3 + multiplier * IQR
     
     mask = (y >= lower_bound) & (y <= upper_bound)
@@ -197,41 +128,6 @@ def remove_outliers(
         logger.info(f"   Salary range kept: ${lower_bound:,.2f} - ${upper_bound:,.2f}")
     
     return X[mask], y[mask]
-
-
-# ============================================================================
-# Target Transformation (Allowed - preprocessing)
-# ============================================================================
-
-class TargetTransformer:
-    """
-    Apply PowerTransformer (Yeo-Johnson) to target variable.
-    Handles both transformation and inverse transformation.
-    """
-    
-    def __init__(self):
-        self.transformer = PowerTransformer(method='yeo-johnson')
-        self.fitted = False
-    
-    def fit_transform(self, y: pd.Series) -> np.ndarray:
-        """Fit transformer and transform target."""
-        y_array = y.values.reshape(-1, 1)
-        y_transformed = self.transformer.fit_transform(y_array)
-        self.fitted = True
-        logger.info(f"✅ Target transformed with PowerTransformer")
-        logger.info(f"   Skewness before: {y.skew():.3f}")
-        logger.info(f"   Skewness after: {pd.Series(y_transformed.flatten()).skew():.3f}")
-        return y_transformed.flatten()
-    
-    def transform(self, y: pd.Series) -> np.ndarray:
-        """Transform target using fitted transformer."""
-        if not self.fitted:
-            raise ValueError("Transformer not fitted yet")
-        return self.transformer.transform(y.values.reshape(-1, 1)).flatten()
-    
-    def inverse_transform(self, y_transformed: np.ndarray) -> np.ndarray:
-        """Convert back to original scale."""
-        return self.transformer.inverse_transform(y_transformed.reshape(-1, 1)).flatten()
 
 
 # ============================================================================
@@ -285,41 +181,28 @@ def train_decision_tree(
 
 
 # ============================================================================
-# Model Evaluation (FIXED - handles numpy arrays correctly)
+# Model Evaluation
 # ============================================================================
 
 def evaluate_model(
     model: DecisionTreeRegressor,
     X_test: pd.DataFrame,
-    y_test: np.ndarray,  # Now expects numpy array, not Series
+    y_test: np.ndarray,
     target_transformer: Optional[TargetTransformer] = None
 ) -> Dict[str, float]:
     """
     Evaluate Decision Tree model performance.
-    
-    Args:
-        model: Trained Decision Tree
-        X_test: Test features
-        y_test: Test target (numpy array, already transformed if applicable)
-        target_transformer: Optional transformer for inverse transform
-    
-    Returns:
-        Dictionary of evaluation metrics
     """
-    
-    # Make predictions
     y_pred = model.predict(X_test)
     
     # Inverse transform if needed
     if target_transformer and ModelConfigV3.USE_TARGET_TRANSFORM:
         y_pred_original = target_transformer.inverse_transform(y_pred)
-        # y_test is already numpy array, no .values needed
         y_test_original = target_transformer.inverse_transform(y_test.reshape(-1, 1)).flatten()
     else:
         y_pred_original = y_pred
         y_test_original = y_test if isinstance(y_test, np.ndarray) else y_test.values
     
-    # Calculate metrics
     mae = mean_absolute_error(y_test_original, y_pred_original)
     mse = mean_squared_error(y_test_original, y_pred_original)
     rmse = np.sqrt(mse)
@@ -340,7 +223,7 @@ def evaluate_model(
     }
     
     print("\n" + "=" * 60)
-    print("DECISION TREE EVALUATION RESULTS - V3")
+    print("DECISION TREE EVALUATION RESULTS")
     print("=" * 60)
     print(f"Test Set Size:     {metrics['test_samples']} samples")
     print(f"Mean Salary:       ${metrics['mean_salary']:,.2f}")
@@ -351,7 +234,6 @@ def evaluate_model(
     print(f"  R²:   {metrics['r2']:.4f}")
     print("=" * 60)
     
-    # Interpretation
     baseline_r2 = 0.223
     improvement = metrics['r2'] - baseline_r2
     
@@ -371,26 +253,24 @@ def evaluate_model(
 # Save/Load Functions
 # ============================================================================
 
-def save_model_v3(model, transformer, metrics, best_params):
+def save_model(model, transformer, metrics, best_params, feature_order):
     """Save all model artifacts."""
     ModelConfigV3.MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save model
     joblib.dump(model, ModelConfigV3.MODEL_PATH)
     logger.info(f"✅ Model saved to: {ModelConfigV3.MODEL_PATH}")
     
-    # Save transformer if used
     if transformer:
         joblib.dump(transformer, ModelConfigV3.TRANSFORMER_PATH)
         logger.info(f"✅ Transformer saved to: {ModelConfigV3.TRANSFORMER_PATH}")
     
-    # Save metrics with metadata
     metrics_with_metadata = {
         **metrics,
         'model_type': 'DecisionTreeRegressor',
         'model_version': 'v3',
         'training_date': datetime.now().isoformat(),
         'best_params': best_params,
+        'feature_order': feature_order,
         'features_used': {
             'outlier_removal': ModelConfigV3.USE_OUTLIER_REMOVAL,
             'target_transform': ModelConfigV3.USE_TARGET_TRANSFORM,
@@ -404,11 +284,10 @@ def save_model_v3(model, transformer, metrics, best_params):
     
     logger.info(f"✅ Metrics saved to: {ModelConfigV3.METRICS_PATH}")
     
-    # Save human-readable version
     txt_path = ModelConfigV3.METRICS_PATH.with_suffix('.txt')
     with open(txt_path, 'w') as f:
         f.write("=" * 60 + "\n")
-        f.write("DECISION TREE V3 - EVALUATION METRICS\n")
+        f.write("DECISION TREE - EVALUATION METRICS\n")
         f.write("=" * 60 + "\n\n")
         f.write(f"Training Date: {datetime.now().isoformat()}\n")
         f.write(f"Model Type: DecisionTreeRegressor\n\n")
@@ -420,13 +299,6 @@ def save_model_v3(model, transformer, metrics, best_params):
             f.write(f"  {param}: {value}\n")
     
     logger.info(f"✅ Human-readable metrics saved to: {txt_path}")
-
-
-def load_model_v3(model_path: Path = ModelConfigV3.MODEL_PATH):
-    """Load trained model."""
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found at {model_path}")
-    return joblib.load(model_path)
 
 
 # ============================================================================
@@ -454,8 +326,7 @@ def analyze_feature_importance(model: DecisionTreeRegressor, X_train: pd.DataFra
     
     print("-" * 60)
     
-    # Save
-    importance_path = ModelConfigV3.MODEL_PATH.parent / "feature_importance_v3.json"
+    importance_path = ModelConfigV3.MODEL_PATH.parent / "feature_importance.json"
     importance_df.to_json(importance_path, orient='records', indent=2)
     logger.info(f"✅ Feature importance saved to: {importance_path}")
     
@@ -477,14 +348,12 @@ def run_sanity_check(
     print("SANITY CHECK - Sample Predictions")
     print("=" * 60)
     
-    # Take 5 random samples from training
     sample_idx = np.random.choice(len(X_train), 5, replace=False)
     X_samples = X_train.iloc[sample_idx]
     y_actual = y_train.iloc[sample_idx]
     
     y_pred_transformed = model.predict(X_samples)
     
-    # Inverse transform if needed
     if target_transformer and ModelConfigV3.USE_TARGET_TRANSFORM:
         y_pred = target_transformer.inverse_transform(y_pred_transformed)
         y_actual_original = y_actual.values
@@ -520,13 +389,9 @@ def run_sanity_check(
         'company_location': 'US'
     }
     
-    # Need encoding maps for preprocessing
     from salary_src.preprocess import preprocess_single_row
     encoding_maps = load_encoding_maps(ModelConfigV3.ENCODING_MAPS_PATH)
     X_custom = preprocess_single_row(custom_example, encoding_maps)
-    
-    # Add engineered features (must match training)
-    X_custom = engineer_features(X_custom, pd.DataFrame([custom_example]))
     
     # Ensure same columns as training
     missing_cols = set(X_train.columns) - set(X_custom.columns)
@@ -559,7 +424,7 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
     """Execute complete Decision Tree training pipeline."""
     
     logger.info("=" * 60)
-    logger.info("DECISION TREE TRAINING PIPELINE V3")
+    logger.info("DECISION TREE TRAINING PIPELINE")
     logger.info("Allowed enhancements: Location, Interactions, Outlier Removal, Target Transform")
     logger.info("=" * 60)
     
@@ -575,20 +440,21 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
         raise ValueError(f"Validation failed: {issues}")
     logger.info("   ✅ Validation passed")
     
-    # Step 3: Prepare features (includes location encoding from preprocess.py)
+    # Step 3: Prepare base features
     logger.info("\n⚙️ Step 3: Preparing base features (with location)...")
-    X, job_title_freq_map = prepare_features(df, fit_job_title=True)
+    X_base, job_title_freq_map = prepare_features(df, fit_job_title=True)
     y = get_target(df)
-    logger.info(f"   Base features: {X.shape[1]} columns")
+    logger.info(f"   Base features: {X_base.shape[1]} columns")
     logger.info(f"   Target range: ${y.min():,.2f} - ${y.max():,.2f}")
     
-    # Step 4: Feature engineering (interactions - ALLOWED)
+    # Step 4: Feature engineering (using preprocess.engineer_features)
     if ModelConfigV3.USE_INTERACTIONS:
         logger.info("\n🔧 Step 4: Engineering interaction features...")
-        X = engineer_features(X, df)
+        X = engineer_features(X_base, df)
         logger.info(f"   Features after engineering: {X.shape[1]} columns")
+        logger.info(f"   Feature order: {list(X.columns)}")
     
-    # Step 5: Remove outliers (ALLOWED - data cleaning)
+    # Step 5: Remove outliers
     logger.info("\n📊 Step 5: Removing outliers...")
     X, y = remove_outliers(X, y, multiplier=ModelConfigV3.OUTLIER_IQR_MULTIPLIER)
     logger.info(f"   Data after outlier removal: {len(X)} rows")
@@ -601,7 +467,7 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
     logger.info(f"   Train: {len(X_train)} rows")
     logger.info(f"   Test: {len(X_test)} rows")
     
-    # Step 7: Target transformation (ALLOWED - preprocessing)
+    # Step 7: Target transformation
     target_transformer = None
     if ModelConfigV3.USE_TARGET_TRANSFORM:
         logger.info("\n🔄 Step 7: Transforming target variable...")
@@ -613,7 +479,7 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
         y_train_transformed = y_train.values
         y_test_transformed = y_test.values
     
-    # Step 8: Train Decision Tree with hyperparameter tuning
+    # Step 8: Train Decision Tree
     logger.info("\n🌲 Step 8: Training Decision Tree with GridSearchCV...")
     model, best_params = train_decision_tree(X_train, y_train_transformed)
     
@@ -623,19 +489,19 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
     
     # Step 10: Feature importance
     logger.info("\n🔬 Step 10: Analyzing feature importance...")
-    importance_df = analyze_feature_importance(model, X_train)
+    analyze_feature_importance(model, X_train)
     
     # Step 11: Save artifacts
     logger.info("\n💾 Step 11: Saving artifacts...")
     save_encoding_maps(job_title_freq_map, ModelConfigV3.ENCODING_MAPS_PATH)
-    save_model_v3(model, target_transformer, metrics, best_params)
+    save_model(model, target_transformer, metrics, best_params, list(X.columns))
     
     # Step 12: Sanity check
     logger.info("\n🔧 Step 12: Running sanity check...")
     run_sanity_check(model, X_train, y_train, target_transformer)
     
     logger.info("\n" + "=" * 60)
-    logger.info("✅ DECISION TREE TRAINING V3 COMPLETE!")
+    logger.info("✅ DECISION TREE TRAINING COMPLETE!")
     logger.info("=" * 60)
     
     return model, metrics
@@ -647,7 +513,7 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("🚀 DECISION TREE V3 TRAINER")
+    print("🚀 DECISION TREE TRAINER")
     print("=" * 60)
     print("\nThis script trains an enhanced Decision Tree with:")
     print("  ✅ Location features (region encoding)")
@@ -670,7 +536,7 @@ if __name__ == "__main__":
         print(f"   - {ModelConfigV3.ENCODING_MAPS_PATH}")
         if ModelConfigV3.USE_TARGET_TRANSFORM:
             print(f"   - {ModelConfigV3.TRANSFORMER_PATH}")
-        print(f"   - {ModelConfigV3.MODEL_PATH.parent / 'feature_importance_v3.json'}")
+        print(f"   - {Path('models/feature_importance.json')}")
         
         print(f"\n📊 Final Results:")
         print(f"   R² Score:  {metrics['r2']:.4f}")
@@ -679,7 +545,7 @@ if __name__ == "__main__":
         
         baseline_r2 = 0.223
         improvement = (metrics['r2'] - baseline_r2) / baseline_r2 * 100
-        print(f"\n📈 Improvement from V1 baseline (0.223): +{improvement:.0f}%")
+        print(f"\n📈 Improvement from baseline (0.223): +{improvement:.0f}%")
         
         if metrics['r2'] >= 0.45:
             print("\n🎯 Excellent! Decision Tree is performing well within assignment constraints.")
