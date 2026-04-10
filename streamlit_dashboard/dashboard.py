@@ -711,50 +711,57 @@ def main():
             st.session_state['tab3_chat'].append({'role': 'assistant', 'content': response})
             st.rerun()
     
-    # ========================================================================
+        # ========================================================================
     # TAB 4: ABOUT
     # ========================================================================
     
     with tab4:
+        st.markdown("## 💰 Salary Intelligence Platform")
+        st.markdown("*AI-powered compensation analytics for data science professionals*")
+        st.markdown("---")
+        
+        st.markdown("### 📊 About This Platform")
+        st.markdown("This platform combines machine learning with AI analysis to provide accurate salary predictions and market intelligence. The model is trained on 3,755 real salary records from data science professionals worldwide (2020-2026).")
+        
+        st.markdown("### 🔬 The Model")
         st.markdown("""
-        <div style="background: #1a1a2e; padding: 2rem; border-radius: 20px; border: 1px solid #2a5a8c;">
-            <h1 style="color: white;">💰 Salary Intelligence Platform</h1>
-            <p style="color: #b0b0c0; font-size: 1.1rem;">AI-powered compensation analytics for data science professionals</p>
-            
-            <h2 style="color: #4a8cbc; margin-top: 2rem;">📊 About This Platform</h2>
-            <p style="color: #c0c0d0; line-height: 1.6;">This platform combines machine learning with AI analysis to provide accurate salary predictions and market intelligence. The model is trained on 3,755 real salary records from data science professionals worldwide (2020-2026).</p>
-            
-            <h2 style="color: #4a8cbc; margin-top: 1.5rem;">🔬 The Model</h2>
-            <ul style="color: #c0c0d0;">
-                <li><strong>Algorithm:</strong> Decision Tree Regressor v4</li>
-                <li><strong>R² Score:</strong> 0.456 (test set)</li>
-                <li><strong>Features:</strong> 19 engineered features including location, experience interactions, and development index</li>
-                <li><strong>Balancing:</strong> Sample weights applied to handle experience level imbalance</li>
-            </ul>
-            
-            <h2 style="color: #4a8cbc; margin-top: 1.5rem;">📈 Key Market Findings</h2>
-            <ul style="color: #c0c0d0;">
-                <li><strong>Location × Experience</strong> accounts for 62% of salary variance</li>
-                <li><strong>Senior roles</strong> earn 95% more than entry-level</li>
-                <li><strong>Medium companies</strong> pay higher averages than large corporations</li>
-                <li><strong>Remote work</strong> shows no salary penalty for experienced professionals</li>
-            </ul>
-            
-            <h2 style="color: #4a8cbc; margin-top: 1.5rem;">🛠️ Technology Stack</h2>
-            <ul style="color: #c0c0d0;">
-                <li><strong>Model:</strong> scikit-learn Decision Tree with GridSearchCV</li>
-                <li><strong>API:</strong> FastAPI (REST)</li>
-                <li><strong>AI:</strong> Ollama with llama3.2 (local)</li>
-                <li><strong>Database:</strong> Supabase (PostgreSQL)</li>
-                <li><strong>Dashboard:</strong> Streamlit with Plotly</li>
-            </ul>
-            
-            <hr style="margin: 2rem 0;">
-            <p style="color: #808090; text-align: center;">Data: Kaggle Data Science Salaries Dataset | 3,755 Records | 2020-2026</p>
-            <p style="color: #808090; text-align: center;">Version 21.0.0</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        - **Algorithm:** Decision Tree Regressor v4
+        - **R² Score:** 0.456 (test set)
+        - **Features:** 19 engineered features including location, experience interactions, and development index
+        - **Balancing:** Sample weights applied to handle experience level imbalance
+        """)
+        
+        st.markdown("### 📈 Key Market Findings")
+        st.markdown("""
+        - **Location × Experience** accounts for 62% of salary variance
+        - **Senior roles** earn 95% more than entry-level
+        - **Medium companies** pay higher averages than large corporations
+        - **Remote work** shows no salary penalty for experienced professionals
+        """)
+        
+        st.markdown("### 🛠️ Technology Stack")
+        st.markdown("""
+        - **Model:** scikit-learn Decision Tree with GridSearchCV
+        - **API:** FastAPI (REST)
+        - **AI:** Ollama with llama3.2 (local)
+        - **Database:** Supabase (PostgreSQL)
+        - **Dashboard:** Streamlit with Plotly
+        """)
+        
+        st.markdown("### 📋 How to Use")
+        st.markdown("""
+        1. Fill in job details in the sidebar
+        2. Click "Predict Salary" for instant analysis
+        3. Explore Market Analytics to understand industry trends
+        4. Chat with the AI Analyst in each tab for insights
+        5. All predictions are saved to the database automatically
+        """)
+        
+        st.markdown("---")
+        st.markdown("*Data: Kaggle Data Science Salaries Dataset | 3,755 Records | 2020-2026*")
+        st.markdown("*Version 21.0.0 - Professional Edition*")
+        
+        
     # Footer
     st.divider()
     c1, c2, c3 = st.columns(3)
