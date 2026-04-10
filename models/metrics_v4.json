@@ -1,0 +1,49 @@
+{
+  "mae": 35739.549379227006,
+  "mae_percentage": 26.654775275756844,
+  "mse": 2156769005.129797,
+  "rmse": 46441.02717565361,
+  "r2": 0.4560537733469405,
+  "mean_salary": 134083.10146862495,
+  "median_salary": 131300.00000000012,
+  "test_samples": 749,
+  "model_type": "DecisionTreeRegressor",
+  "model_version": "v4",
+  "training_date": "2026-04-10T05:20:53.926404",
+  "best_params": {
+    "criterion": "squared_error",
+    "max_depth": 10,
+    "max_features": null,
+    "min_samples_leaf": 10,
+    "min_samples_split": 30
+  },
+  "feature_order": [
+    "region_encoded",
+    "region_x_exp",
+    "job_title_encoded",
+    "title_x_region",
+    "dev_index",
+    "exp_x_size",
+    "work_year",
+    "remote_x_exp",
+    "work_year_squared",
+    "remote_ratio",
+    "company_size_encoded",
+    "same_country",
+    "experience_level_encoded",
+    "employment_type_encoded",
+    "size_squared",
+    "size_x_region",
+    "size_x_title",
+    "is_large",
+    "is_small"
+  ],
+  "features_used": {
+    "outlier_removal": true,
+    "target_transform": true,
+    "interactions": true,
+    "development_index": true,
+    "balanced_sampling": true,
+    "balance_method": "weighted"
+  }
+}

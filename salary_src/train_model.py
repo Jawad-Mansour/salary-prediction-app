@@ -1,21 +1,8 @@
 """
-Training Module V3 - Enhanced Decision Tree (Allowed improvements only)
-
-Allowed improvements:
-1. Location features (country/region encoding)
-2. Feature engineering (interactions: exp×size, region×exp, etc.)
-3. Outlier removal (IQR method)
-4. Target transformation (PowerTransformer)
-5. Hyperparameter tuning (GridSearchCV on Decision Tree)
-6. Development index (country GDP proxy)
-
-NOT allowed (per assignment):
-- Random Forest
-- XGBoost
-- Ensemble methods
+Training Module V4 - Decision Tree with Balanced Sampling
 
 Author: Salary Prediction App
-Version: 3.0.2 (FIXED - No duplicate functions, uses preprocess.py)
+Version: 4.0.0
 """
 
 import pandas as pd
@@ -41,8 +28,8 @@ from salary_src.preprocess import (
     validate_input_data,
     validate_encoded_features,
     TargetTransformer,
-    engineer_features,  # Import from preprocess (single source of truth)
-    FULL_FEATURE_ORDER  # Import the feature order
+    engineer_features,
+    FULL_FEATURE_ORDER
 )
 
 import logging
@@ -58,10 +45,9 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ============================================================================
 
-class ModelConfigV3:
-    """Decision Tree configuration with allowed enhancements"""
+class ModelConfigV4:
+    """Decision Tree configuration with balancing"""
     
-    # Decision Tree hyperparameter search space (expanded for tuning)
     DT_PARAMS = {
         'max_depth': [8, 10, 12, 15, 18, 20, 25],
         'min_samples_split': [5, 10, 15, 20, 30],
@@ -70,29 +56,38 @@ class ModelConfigV3:
         'criterion': ['squared_error', 'friedman_mse', 'absolute_error']
     }
     
-    # Training parameters
     TEST_SIZE = 0.2
     RANDOM_STATE = 42
     CV_FOLDS = 5
     
-    # Allowed enhancements
     USE_OUTLIER_REMOVAL = True
     OUTLIER_IQR_MULTIPLIER = 2.5
     
-    USE_TARGET_TRANSFORM = True  # PowerTransformer
-    
+    USE_TARGET_TRANSFORM = True
     USE_INTERACTIONS = True
     USE_DEVELOPMENT_INDEX = True
     
-    # File paths
-    MODEL_PATH = Path("models/decision_tree.pkl")
-    TRANSFORMER_PATH = Path("models/transformer.pkl")
-    METRICS_PATH = Path("models/metrics.json")
+    # ============ NEW: BALANCING CONFIGURATION ============
+    USE_BALANCED_SAMPLING = True
+    BALANCE_METHOD = 'weighted'  # Options: 'weighted', 'smote', 'undersample'
+    
+    # Sample weights to balance experience levels
+    EXPERIENCE_WEIGHTS = {
+        'EN': 3.5,   # Entry level (underrepresented at 8.5%)
+        'MI': 1.2,   # Mid level (21%)
+        'SE': 0.6,   # Senior level (overrepresented at 67%)
+        'EX': 5.0    # Executive level (rarest at 3%)
+    }
+    # ======================================================
+    
+    MODEL_PATH = Path("models/decision_tree_v4.pkl")
+    TRANSFORMER_PATH = Path("models/transformer_v4.pkl")
+    METRICS_PATH = Path("models/metrics_v4.json")
     ENCODING_MAPS_PATH = Path("models/encoding_maps.json")
 
 
 # ============================================================================
-# Outlier Removal (Allowed - data cleaning)
+# Outlier Removal
 # ============================================================================
 
 def remove_outliers(
@@ -100,24 +95,13 @@ def remove_outliers(
     y: pd.Series,
     multiplier: float = 2.5
 ) -> Tuple[pd.DataFrame, pd.Series]:
-    """
-    Remove outliers using IQR method.
-    
-    Args:
-        X: Features DataFrame
-        y: Target Series
-        multiplier: IQR multiplier (2.5 is less aggressive than 3.0)
-    
-    Returns:
-        Tuple of (X_cleaned, y_cleaned)
-    """
-    if not ModelConfigV3.USE_OUTLIER_REMOVAL:
+    if not ModelConfigV4.USE_OUTLIER_REMOVAL:
         return X, y
     
     Q1 = y.quantile(0.25)
     Q3 = y.quantile(0.75)
     IQR = Q3 - Q1
-    lower_bound = max(0, Q1 - multiplier * IQR)  # Cannot be negative
+    lower_bound = max(0, Q1 - multiplier * IQR)
     upper_bound = Q3 + multiplier * IQR
     
     mask = (y >= lower_bound) & (y <= upper_bound)
@@ -131,48 +115,111 @@ def remove_outliers(
 
 
 # ============================================================================
-# Decision Tree Training with Hyperparameter Tuning
+# NEW: Balancing Function
+# ============================================================================
+
+def apply_balancing(X_train: pd.DataFrame, y_train: pd.Series, 
+                    df_train_original: pd.DataFrame) -> Tuple[pd.DataFrame, np.ndarray, Optional[np.ndarray]]:
+    """
+    Apply balancing to handle imbalanced experience levels.
+    
+    Returns:
+        X_train: Features (possibly modified)
+        y_train: Target values (as numpy array)
+        sample_weights: Sample weights for model training (or None)
+    """
+    if not ModelConfigV4.USE_BALANCED_SAMPLING:
+        return X_train, y_train.values, None
+    
+    logger.info("=" * 60)
+    logger.info("Applying Data Balancing")
+    logger.info("=" * 60)
+    
+    exp_levels = df_train_original['experience_level']
+    
+    # Print class distribution before balancing
+    logger.info("Experience level distribution BEFORE balancing:")
+    for level, count in exp_levels.value_counts().items():
+        pct = count / len(exp_levels) * 100
+        logger.info(f"  {level}: {count} ({pct:.1f}%)")
+    
+    if ModelConfigV4.BALANCE_METHOD == 'weighted':
+        # Method 1: Sample weights (preferred - doesn't modify data)
+        sample_weights = exp_levels.map(ModelConfigV4.EXPERIENCE_WEIGHTS).values
+        logger.info(f"\n✅ Applied sample weights: {ModelConfigV4.EXPERIENCE_WEIGHTS}")
+        return X_train, y_train.values, sample_weights
+    
+    elif ModelConfigV4.BALANCE_METHOD == 'smote':
+        # Method 2: SMOTE oversampling
+        try:
+            from imblearn.over_sampling import SMOTE
+            smote = SMOTE(random_state=ModelConfigV4.RANDOM_STATE)
+            X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+            logger.info(f"\n✅ SMOTE applied: {len(X_train)} → {len(X_resampled)} samples")
+            return X_resampled, y_resampled, None
+        except ImportError:
+            logger.warning("⚠️ imbalanced-learn not installed. Falling back to weighted method.")
+            sample_weights = exp_levels.map(ModelConfigV4.EXPERIENCE_WEIGHTS).values
+            return X_train, y_train.values, sample_weights
+    
+    else:  # 'undersample'
+        # Method 3: Undersample majority class
+        from sklearn.utils import resample
+        
+        train_indices = X_train.index
+        df_train_balanced = df_train_original.loc[train_indices].copy()
+        
+        # Undersample Senior level to 1000 samples
+        se_indices = df_train_balanced[df_train_balanced['experience_level'] == 'SE'].index
+        if len(se_indices) > 1000:
+            se_undersampled = resample(se_indices, replace=False, n_samples=1000, 
+                                       random_state=ModelConfigV4.RANDOM_STATE)
+            keep_indices = df_train_balanced[df_train_balanced['experience_level'] != 'SE'].index.tolist() + \
+                          se_undersampled.tolist()
+            X_train = X_train.loc[keep_indices]
+            y_train = y_train.loc[keep_indices]
+            logger.info(f"\n✅ Undersampled SE: {len(se_indices)} → 1000 samples")
+        
+        return X_train, y_train.values, None
+
+
+# ============================================================================
+# Decision Tree Training
 # ============================================================================
 
 def train_decision_tree(
     X_train: pd.DataFrame,
-    y_train: np.ndarray
+    y_train: np.ndarray,
+    sample_weights: Optional[np.ndarray] = None
 ) -> Tuple[DecisionTreeRegressor, Dict]:
-    """
-    Train Decision Tree with GridSearchCV hyperparameter tuning.
-    This is the ONLY model allowed per assignment.
     
-    Args:
-        X_train: Training features
-        y_train: Training target (already transformed)
-    
-    Returns:
-        Tuple of (trained model, best parameters)
-    """
     logger.info("=" * 60)
     logger.info("Training Decision Tree with Hyperparameter Tuning")
     logger.info("=" * 60)
     
-    base_model = DecisionTreeRegressor(random_state=ModelConfigV3.RANDOM_STATE)
+    base_model = DecisionTreeRegressor(random_state=ModelConfigV4.RANDOM_STATE)
     
-    # Calculate total combinations
     total_combinations = 1
-    for v in ModelConfigV3.DT_PARAMS.values():
+    for v in ModelConfigV4.DT_PARAMS.values():
         total_combinations *= len(v)
     
     logger.info(f"Searching {total_combinations} parameter combinations...")
-    logger.info(f"This may take 1-2 minutes...")
     
     grid_search = GridSearchCV(
         estimator=base_model,
-        param_grid=ModelConfigV3.DT_PARAMS,
-        cv=ModelConfigV3.CV_FOLDS,
+        param_grid=ModelConfigV4.DT_PARAMS,
+        cv=ModelConfigV4.CV_FOLDS,
         scoring='r2',
         n_jobs=-1,
         verbose=1
     )
     
-    grid_search.fit(X_train, y_train)
+    # Pass sample_weights if provided
+    if sample_weights is not None:
+        grid_search.fit(X_train, y_train, sample_weight=sample_weights)
+        logger.info("✅ Training with sample weights")
+    else:
+        grid_search.fit(X_train, y_train)
     
     logger.info(f"\n✅ Best R² score (CV): {grid_search.best_score_:.4f}")
     logger.info(f"✅ Best parameters: {grid_search.best_params_}")
@@ -190,13 +237,10 @@ def evaluate_model(
     y_test: np.ndarray,
     target_transformer: Optional[TargetTransformer] = None
 ) -> Dict[str, float]:
-    """
-    Evaluate Decision Tree model performance.
-    """
+    
     y_pred = model.predict(X_test)
     
-    # Inverse transform if needed
-    if target_transformer and ModelConfigV3.USE_TARGET_TRANSFORM:
+    if target_transformer and ModelConfigV4.USE_TARGET_TRANSFORM:
         y_pred_original = target_transformer.inverse_transform(y_pred)
         y_test_original = target_transformer.inverse_transform(y_test.reshape(-1, 1)).flatten()
     else:
@@ -234,18 +278,6 @@ def evaluate_model(
     print(f"  R²:   {metrics['r2']:.4f}")
     print("=" * 60)
     
-    baseline_r2 = 0.223
-    improvement = metrics['r2'] - baseline_r2
-    
-    if metrics['r2'] >= 0.5:
-        print("✅ Excellent Decision Tree! Well above baseline")
-    elif metrics['r2'] >= 0.4:
-        print(f"👍 Great improvement! +{improvement*100:.1f}% from V1 baseline")
-    elif metrics['r2'] >= 0.3:
-        print(f"👌 Decent improvement! +{improvement*100:.1f}% from V1 baseline")
-    else:
-        print("⚠️ Try different hyperparameters")
-    
     return metrics
 
 
@@ -254,59 +286,43 @@ def evaluate_model(
 # ============================================================================
 
 def save_model(model, transformer, metrics, best_params, feature_order):
-    """Save all model artifacts."""
-    ModelConfigV3.MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ModelConfigV4.MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     
-    joblib.dump(model, ModelConfigV3.MODEL_PATH)
-    logger.info(f"✅ Model saved to: {ModelConfigV3.MODEL_PATH}")
+    joblib.dump(model, ModelConfigV4.MODEL_PATH)
+    logger.info(f"✅ Model saved to: {ModelConfigV4.MODEL_PATH}")
     
     if transformer:
-        joblib.dump(transformer, ModelConfigV3.TRANSFORMER_PATH)
-        logger.info(f"✅ Transformer saved to: {ModelConfigV3.TRANSFORMER_PATH}")
+        joblib.dump(transformer, ModelConfigV4.TRANSFORMER_PATH)
+        logger.info(f"✅ Transformer saved to: {ModelConfigV4.TRANSFORMER_PATH}")
     
     metrics_with_metadata = {
         **metrics,
         'model_type': 'DecisionTreeRegressor',
-        'model_version': 'v3',
+        'model_version': 'v4',
         'training_date': datetime.now().isoformat(),
         'best_params': best_params,
         'feature_order': feature_order,
         'features_used': {
-            'outlier_removal': ModelConfigV3.USE_OUTLIER_REMOVAL,
-            'target_transform': ModelConfigV3.USE_TARGET_TRANSFORM,
-            'interactions': ModelConfigV3.USE_INTERACTIONS,
-            'development_index': ModelConfigV3.USE_DEVELOPMENT_INDEX
+            'outlier_removal': ModelConfigV4.USE_OUTLIER_REMOVAL,
+            'target_transform': ModelConfigV4.USE_TARGET_TRANSFORM,
+            'interactions': ModelConfigV4.USE_INTERACTIONS,
+            'development_index': ModelConfigV4.USE_DEVELOPMENT_INDEX,
+            'balanced_sampling': ModelConfigV4.USE_BALANCED_SAMPLING,
+            'balance_method': ModelConfigV4.BALANCE_METHOD
         }
     }
     
-    with open(ModelConfigV3.METRICS_PATH, 'w') as f:
+    with open(ModelConfigV4.METRICS_PATH, 'w') as f:
         json.dump(metrics_with_metadata, f, indent=2)
     
-    logger.info(f"✅ Metrics saved to: {ModelConfigV3.METRICS_PATH}")
-    
-    txt_path = ModelConfigV3.METRICS_PATH.with_suffix('.txt')
-    with open(txt_path, 'w') as f:
-        f.write("=" * 60 + "\n")
-        f.write("DECISION TREE - EVALUATION METRICS\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(f"Training Date: {datetime.now().isoformat()}\n")
-        f.write(f"Model Type: DecisionTreeRegressor\n\n")
-        f.write(f"Test R²: {metrics['r2']:.4f}\n")
-        f.write(f"Test MAE: ${metrics['mae']:,.2f} ({metrics['mae_percentage']:.2f}%)\n")
-        f.write(f"Test RMSE: ${metrics['rmse']:,.2f}\n\n")
-        f.write("Best Hyperparameters:\n")
-        for param, value in best_params.items():
-            f.write(f"  {param}: {value}\n")
-    
-    logger.info(f"✅ Human-readable metrics saved to: {txt_path}")
+    logger.info(f"✅ Metrics saved to: {ModelConfigV4.METRICS_PATH}")
 
 
 # ============================================================================
-# Feature Importance Analysis
+# Feature Importance
 # ============================================================================
 
 def analyze_feature_importance(model: DecisionTreeRegressor, X_train: pd.DataFrame):
-    """Display and save feature importance from Decision Tree."""
     importances = model.feature_importances_
     feature_names = X_train.columns
     
@@ -324,9 +340,7 @@ def analyze_feature_importance(model: DecisionTreeRegressor, X_train: pd.DataFra
         bar = "█" * bar_length
         print(f"  {row['feature']:25s} {bar} {row['importance']:.3f}")
     
-    print("-" * 60)
-    
-    importance_path = ModelConfigV3.MODEL_PATH.parent / "feature_importance.json"
+    importance_path = ModelConfigV4.MODEL_PATH.parent / "feature_importance_v4.json"
     importance_df.to_json(importance_path, orient='records', indent=2)
     logger.info(f"✅ Feature importance saved to: {importance_path}")
     
@@ -334,98 +348,13 @@ def analyze_feature_importance(model: DecisionTreeRegressor, X_train: pd.DataFra
 
 
 # ============================================================================
-# Sanity Check
-# ============================================================================
-
-def run_sanity_check(
-    model: DecisionTreeRegressor,
-    X_train: pd.DataFrame,
-    y_train: pd.Series,
-    target_transformer: Optional[TargetTransformer] = None
-):
-    """Run sanity check with sample predictions."""
-    print("\n" + "=" * 60)
-    print("SANITY CHECK - Sample Predictions")
-    print("=" * 60)
-    
-    sample_idx = np.random.choice(len(X_train), 5, replace=False)
-    X_samples = X_train.iloc[sample_idx]
-    y_actual = y_train.iloc[sample_idx]
-    
-    y_pred_transformed = model.predict(X_samples)
-    
-    if target_transformer and ModelConfigV3.USE_TARGET_TRANSFORM:
-        y_pred = target_transformer.inverse_transform(y_pred_transformed)
-        y_actual_original = y_actual.values
-    else:
-        y_pred = y_pred_transformed
-        y_actual_original = y_actual.values
-    
-    print("\n📊 Sample Predictions vs Actual:")
-    print("-" * 65)
-    print(f"{'Sample':<8} {'Actual':<15} {'Predicted':<15} {'Error %':<10}")
-    print("-" * 65)
-    
-    errors = []
-    for i, (actual, pred) in enumerate(zip(y_actual_original, y_pred)):
-        error_pct = abs(actual - pred) / actual * 100
-        errors.append(error_pct)
-        indicator = "✅" if error_pct < 20 else "⚠️" if error_pct < 40 else "❌"
-        print(f"Sample {i+1}:  ${actual:>12,.2f}  ${pred:>12,.2f}  {error_pct:>6.1f}%     {indicator}")
-    
-    print("-" * 65)
-    print(f"Average Error: {np.mean(errors):.1f}%")
-    
-    # Custom test case
-    print("\n🔮 Custom Example Prediction:")
-    custom_example = {
-        'experience_level': 'SE',
-        'employment_type': 'FT',
-        'job_title': 'Data Scientist',
-        'company_size': 'L',
-        'remote_ratio': 100,
-        'work_year': 2024,
-        'employee_residence': 'US',
-        'company_location': 'US'
-    }
-    
-    from salary_src.preprocess import preprocess_single_row
-    encoding_maps = load_encoding_maps(ModelConfigV3.ENCODING_MAPS_PATH)
-    X_custom = preprocess_single_row(custom_example, encoding_maps)
-    
-    # Ensure same columns as training
-    missing_cols = set(X_train.columns) - set(X_custom.columns)
-    for col in missing_cols:
-        X_custom[col] = 0
-    
-    X_custom = X_custom[X_train.columns]
-    
-    pred_transformed = model.predict(X_custom)[0]
-    if target_transformer and ModelConfigV3.USE_TARGET_TRANSFORM:
-        pred = target_transformer.inverse_transform(np.array([pred_transformed]))[0]
-    else:
-        pred = pred_transformed
-    
-    print(f"  Job: Senior Data Scientist at Large Company (US)")
-    print(f"  Remote: 100% | Year: 2024")
-    print(f"  Predicted Salary: ${pred:,.2f}")
-    
-    if 80000 < pred < 250000:
-        print("\n✅ Sanity check PASSED")
-    else:
-        print("\n⚠️ Sanity check WARNING - Prediction outside expected range")
-
-
-# ============================================================================
 # Main Training Pipeline
 # ============================================================================
 
 def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
-    """Execute complete Decision Tree training pipeline."""
     
     logger.info("=" * 60)
-    logger.info("DECISION TREE TRAINING PIPELINE")
-    logger.info("Allowed enhancements: Location, Interactions, Outlier Removal, Target Transform")
+    logger.info("DECISION TREE TRAINING PIPELINE V4 (WITH BALANCING)")
     logger.info("=" * 60)
     
     # Step 1: Load data
@@ -441,47 +370,53 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
     logger.info("   ✅ Validation passed")
     
     # Step 3: Prepare base features
-    logger.info("\n⚙️ Step 3: Preparing base features (with location)...")
+    logger.info("\n⚙️ Step 3: Preparing base features...")
     X_base, job_title_freq_map = prepare_features(df, fit_job_title=True)
     y = get_target(df)
     logger.info(f"   Base features: {X_base.shape[1]} columns")
     logger.info(f"   Target range: ${y.min():,.2f} - ${y.max():,.2f}")
     
-    # Step 4: Feature engineering (using preprocess.engineer_features)
-    if ModelConfigV3.USE_INTERACTIONS:
+    # Step 4: Feature engineering
+    if ModelConfigV4.USE_INTERACTIONS:
         logger.info("\n🔧 Step 4: Engineering interaction features...")
         X = engineer_features(X_base, df)
         logger.info(f"   Features after engineering: {X.shape[1]} columns")
-        logger.info(f"   Feature order: {list(X.columns)}")
     
     # Step 5: Remove outliers
     logger.info("\n📊 Step 5: Removing outliers...")
-    X, y = remove_outliers(X, y, multiplier=ModelConfigV3.OUTLIER_IQR_MULTIPLIER)
+    X, y = remove_outliers(X, y, multiplier=ModelConfigV4.OUTLIER_IQR_MULTIPLIER)
+    # Also filter df to match
+    df_filtered = df.loc[X.index]
     logger.info(f"   Data after outlier removal: {len(X)} rows")
     
     # Step 6: Train/test split
     logger.info("\n📊 Step 6: Creating train/test split...")
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=ModelConfigV3.TEST_SIZE, random_state=ModelConfigV3.RANDOM_STATE
+        X, y, test_size=ModelConfigV4.TEST_SIZE, random_state=ModelConfigV4.RANDOM_STATE
     )
-    logger.info(f"   Train: {len(X_train)} rows")
-    logger.info(f"   Test: {len(X_test)} rows")
+    df_train = df_filtered.loc[X_train.index]
+    logger.info(f"   Train: {len(X_train)} rows, Test: {len(X_test)} rows")
+    
+    # ============ NEW: Step 6.5 - Apply Balancing ============
+    logger.info("\n⚖️ Step 6.5: Applying data balancing...")
+    X_train, y_train_array, sample_weights = apply_balancing(X_train, y_train, df_train)
+    # =========================================================
     
     # Step 7: Target transformation
     target_transformer = None
-    if ModelConfigV3.USE_TARGET_TRANSFORM:
+    if ModelConfigV4.USE_TARGET_TRANSFORM:
         logger.info("\n🔄 Step 7: Transforming target variable...")
         target_transformer = TargetTransformer()
-        y_train_transformed = target_transformer.fit_transform(y_train)
+        y_train_transformed = target_transformer.fit_transform(pd.Series(y_train_array))
         y_test_transformed = target_transformer.transform(y_test)
         logger.info("   ✅ Target transformed")
     else:
-        y_train_transformed = y_train.values
+        y_train_transformed = y_train_array
         y_test_transformed = y_test.values
     
     # Step 8: Train Decision Tree
     logger.info("\n🌲 Step 8: Training Decision Tree with GridSearchCV...")
-    model, best_params = train_decision_tree(X_train, y_train_transformed)
+    model, best_params = train_decision_tree(X_train, y_train_transformed, sample_weights)
     
     # Step 9: Evaluate
     logger.info("\n📈 Step 9: Evaluating model...")
@@ -493,15 +428,13 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
     
     # Step 11: Save artifacts
     logger.info("\n💾 Step 11: Saving artifacts...")
-    save_encoding_maps(job_title_freq_map, ModelConfigV3.ENCODING_MAPS_PATH)
+    save_encoding_maps(job_title_freq_map, ModelConfigV4.ENCODING_MAPS_PATH)
     save_model(model, target_transformer, metrics, best_params, list(X.columns))
-    
-    # Step 12: Sanity check
-    logger.info("\n🔧 Step 12: Running sanity check...")
-    run_sanity_check(model, X_train, y_train, target_transformer)
     
     logger.info("\n" + "=" * 60)
     logger.info("✅ DECISION TREE TRAINING COMPLETE!")
+    logger.info(f"   Model saved as: {ModelConfigV4.MODEL_PATH}")
+    logger.info(f"   R² Score: {metrics['r2']:.4f}")
     logger.info("=" * 60)
     
     return model, metrics
@@ -513,7 +446,7 @@ def run_training_pipeline() -> Tuple[DecisionTreeRegressor, Dict]:
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("🚀 DECISION TREE TRAINER")
+    print("🚀 DECISION TREE TRAINER V4 (WITH BALANCING)")
     print("=" * 60)
     print("\nThis script trains an enhanced Decision Tree with:")
     print("  ✅ Location features (region encoding)")
@@ -522,38 +455,13 @@ if __name__ == "__main__":
     print("  ✅ Target transformation (PowerTransformer)")
     print("  ✅ Hyperparameter tuning (GridSearchCV)")
     print("  ✅ Development index (country GDP proxy)")
+    print("  ✅ Balanced sampling (experience level weighting)")
     print("\n" + "=" * 60)
     
     try:
         model, metrics = run_training_pipeline()
-        
-        print("\n" + "=" * 60)
-        print("🎉 TRAINING SUCCESSFUL!")
-        print("=" * 60)
-        print(f"\n📁 Generated files:")
-        print(f"   - {ModelConfigV3.MODEL_PATH}")
-        print(f"   - {ModelConfigV3.METRICS_PATH}")
-        print(f"   - {ModelConfigV3.ENCODING_MAPS_PATH}")
-        if ModelConfigV3.USE_TARGET_TRANSFORM:
-            print(f"   - {ModelConfigV3.TRANSFORMER_PATH}")
-        print(f"   - {Path('models/feature_importance.json')}")
-        
-        print(f"\n📊 Final Results:")
-        print(f"   R² Score:  {metrics['r2']:.4f}")
-        print(f"   MAE:       ${metrics['mae']:,.2f} ({metrics['mae_percentage']:.1f}%)")
-        print(f"   RMSE:      ${metrics['rmse']:,.2f}")
-        
-        baseline_r2 = 0.223
-        improvement = (metrics['r2'] - baseline_r2) / baseline_r2 * 100
-        print(f"\n📈 Improvement from baseline (0.223): +{improvement:.0f}%")
-        
-        if metrics['r2'] >= 0.45:
-            print("\n🎯 Excellent! Decision Tree is performing well within assignment constraints.")
-        elif metrics['r2'] >= 0.35:
-            print("\n👍 Good improvement! Model is ready for deployment.")
-        else:
-            print("\n⚠️ Consider adjusting hyperparameters or adding more features.")
-        
+        print(f"\n🎯 Final R² Score: {metrics['r2']:.4f}")
+        print(f"   MAE: ${metrics['mae']:,.2f} ({metrics['mae_percentage']:.1f}%)")
     except Exception as e:
         logger.error(f"❌ Training failed: {e}")
         import traceback

@@ -22,8 +22,9 @@ class ModelLoader:
     
     def _load(self):
         """Load the model and transformer from disk"""
-        model_path = Path("models/decision_tree.pkl")
-        transformer_path = Path("models/transformer.pkl")
+        # CHANGED: Use v4 models
+        model_path = Path("models/decision_tree_v4.pkl")
+        transformer_path = Path("models/transformer_v4.pkl")
         
         if not model_path.exists():
             raise FileNotFoundError(f"Model not found at {model_path}")
@@ -43,7 +44,6 @@ class ModelLoader:
         prediction_transformed = self._model.predict(X)[0]
         
         if self._transformer is not None:
-            # Transformer returns 1D array, use [0]
             prediction_array = self._transformer.inverse_transform(
                 np.array([[prediction_transformed]])
             )
